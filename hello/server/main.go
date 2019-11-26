@@ -2,9 +2,12 @@ package main
 
 import (
 	pb "../../proto/hello"
+	"google.golang.org/grpc/metadata" // 引入grpc meta包
+
 	"context"
 	"fmt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 	"net"
@@ -20,9 +23,28 @@ const (
 type helloService struct{}
 
 func (h helloService) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloResponse, error){
+	// rpc服务接口中解析metadata中的信息并验证
+	md,ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil,grpc.Errorf(codes.Unauthenticated,"无Token认证信息")
+	}
+
+	var (
+		appid  string
+		appkey string
+	)
+	if val, ok := md["appid"]; ok {
+		appid = val[0]
+	}
+	if val, ok := md["appkey"]; ok {
+		appkey = val[0]
+	}
+	if appid != "101010" || appkey != "i am key" {
+		return nil, grpc.Errorf(codes.Unauthenticated, "Token认证信息无效: appid=%s, appkey=%s", appid, appkey)
+	}
 	resp := new(pb.HelloResponse)
-	resp.Message = fmt.Sprintf("Hello hahfds %s", in.Name)
-	return resp,nil
+	resp.Message = fmt.Sprintf("Hello %s. \n Token info: appid=%s,appkey=%s", in.Name, appid, appkey)
+	return resp, nil
 }
 
 
@@ -50,6 +72,6 @@ func main()  {
 
 	// 注册HelloService
 	pb.RegisterHelloServer(s, HelloService)
-	fmt.Println("Listen on " + Address+"with TLS")
+	fmt.Println("Listen on " + Address+" with TLS + TOKEN")
 	s.Serve(listen)
 }

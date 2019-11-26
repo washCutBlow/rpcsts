@@ -18,6 +18,10 @@ const (
 
 //  自定义认证
 type customCredential struct{}
+/*下面两个接口是rpc提供的自定义认证的方法
+每次rpc调用都会传输认证信息，customCredential 其实是实现了grpc/credential包内的PerRPCCredentials接
+每次调用，token信息会通过请求的metadata传输到服务端
+*/
 //实现自定义的认证接口
 func (c customCredential) GetRequestMetadata(ctx context.Context, uri...string) (map[string]string, error) {
 	return map[string]string{
@@ -30,22 +34,23 @@ func (c customCredential) RequireTransportSecurity() bool  {
 	return OpenTLS
 }
 
-
-
-
-
-
-
 func main() {
-	// TLS连接 这里的serverName是在生成pem文件时填写的servername
-	creds,err := credentials.NewClientTLSFromFile("keys/server.pem","127.0.0.1:50052")
-	if err != nil {
-		grpclog.Fatalf("Failed to create TLS credentials %v", err)
+	var err error
+	var opts []grpc.DialOption
+	if OpenTLS {	//  如果开启了TLS认证
+		// TLS连接 这里的serverName是在生成pem文件时填写的servername
+		creds,err := credentials.NewClientTLSFromFile("keys/server.pem","127.0.0.1:50052")
+		if err != nil {
+			grpclog.Fatalf("Failed to create TLS credentials %v", err)
+		}
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+	} else {
+		opts = append(opts,grpc.WithInsecure())
 	}
 
-	// 连接
-	conn, err := grpc.Dial(Address, grpc.WithTransportCredentials(creds))
-	//  conn, err := grpc.Dial(Address, grpc.WithInsecure())
+	//  使用自定义认证
+	opts = append(opts, grpc.WithPerRPCCredentials(new(customCredential)))
+	conn,err := grpc.Dial(Address,opts...)
 	if err != nil {
 		grpclog.Fatalln(err)
 	}
