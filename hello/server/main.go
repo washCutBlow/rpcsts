@@ -2,8 +2,7 @@ package main
 
 import (
 	pb "../../proto/hello"
-	"google.golang.org/grpc/metadata" // 引入grpc meta包
-
+	"google.golang.org/grpc/metadata"
 	"context"
 	"fmt"
 	"google.golang.org/grpc"
@@ -24,7 +23,7 @@ type helloService struct{}
 
 func (h helloService) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloResponse, error){
 	// rpc服务接口中解析metadata中的信息并验证
-	md,ok := metadata.FromIncomingContext(ctx)
+	/*md,ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return nil,grpc.Errorf(codes.Unauthenticated,"无Token认证信息")
 	}
@@ -41,15 +40,53 @@ func (h helloService) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.He
 	}
 	if appid != "101010" || appkey != "i am key" {
 		return nil, grpc.Errorf(codes.Unauthenticated, "Token认证信息无效: appid=%s, appkey=%s", appid, appkey)
-	}
+	}*/
+
 	resp := new(pb.HelloResponse)
-	resp.Message = fmt.Sprintf("Hello %s. \n Token info: appid=%s,appkey=%s", in.Name, appid, appkey)
+	resp.Message = fmt.Sprintf("Hello %s", in.Name)
 	return resp, nil
+}
+// 
+var HelloService  = helloService{}
+
+
+// interceptor 拦截器
+func interceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	err := auth(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// 继续处理请求
+	return handler(ctx, req)
+}
+// 验证
+// auth 验证Token
+func auth(ctx context.Context) error {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return grpc.Errorf(codes.Unauthenticated, "无Token认证信息")
+	}
+	var (
+		appid  string
+		appkey string
+	)
+	if val, ok := md["appid"]; ok {
+		appid = val[0]
+	}
+	if val, ok := md["appkey"]; ok {
+		appkey = val[0]
+	}
+	if appid != "101010" || appkey != "i am key" {
+		return grpc.Errorf(codes.Unauthenticated, "Token认证信息无效: appid=%s, appkey=%s", appid, appkey)
+	}
+	return nil
 }
 
 
-// 
-var HelloService  = helloService{}
+
+
+
+
 
 func main()  {
 	listen, err := net.Listen("tcp", Address)
@@ -57,12 +94,16 @@ func main()  {
 		grpclog.Fatalf("Failed to listen: %v", err)
 	}
 
+	var opts []grpc.ServerOption
 	// TLS认证
 	//  注意这里的路径的写法，因为已经在goland中设置了当前工作目录是rpcsts
 	creds,err := credentials.NewServerTLSFromFile("keys/server.pem", "keys/server.key")
 	if err != nil {
 		grpclog.Fatalf("Failed to generate credentials %v", err)
 	}
+	opts = append(opts,grpc.Creds(creds))
+	// 注册拦截器
+	opts = append(opts, grpc.UnaryInterceptor(interceptor))
 
 	//  实例化grpc server并开启TLS认证
 	s := grpc.NewServer(grpc.Creds(creds))
@@ -72,6 +113,6 @@ func main()  {
 
 	// 注册HelloService
 	pb.RegisterHelloServer(s, HelloService)
-	fmt.Println("Listen on " + Address+" with TLS + TOKEN")
+	fmt.Println("Listen on " + Address+" with TLS + TOKEN + interceptor")
 	s.Serve(listen)
 }
