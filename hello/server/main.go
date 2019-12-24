@@ -2,6 +2,7 @@ package main
 
 import (
 	pb "../../proto/hello"
+	"golang.org/x/net/trace"
 	"google.golang.org/grpc/metadata"
 	"context"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 	"net"
+	"net/http"
+	_ "golang.org/x/time/rate"
 )
 
 const (
@@ -85,7 +88,13 @@ func auth(ctx context.Context) error {
 
 
 
-
+func startTrace() {
+	trace.AuthRequest = func(req *http.Request) (any, sensitive bool) {
+		return true, true
+	}
+	go http.ListenAndServe("127.0.0.1:50051", nil)
+	fmt.Println("Trace listen on 50051")
+}
 
 
 func main()  {
@@ -111,8 +120,12 @@ func main()  {
 	// s := grpc.NewServer()
 
 
+
 	// 注册HelloService
 	pb.RegisterHelloServer(s, HelloService)
+
+	// 开启内置Trace，对请求进行追踪
+	go startTrace()
 	fmt.Println("Listen on " + Address+" with TLS + TOKEN + interceptor")
 	s.Serve(listen)
 }
